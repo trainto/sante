@@ -34,6 +34,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
+    "deploy": "pnpm build && npm publish --access public",
     "lint": "eslint .",
     "preview": "vite preview"
   },
