@@ -14,6 +14,10 @@
     "management",
     "store"
   ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/trainto/sante.git"
+  },
   "bugs": {
     "url": "https://github.com/trainto/sante/issues"
   },
