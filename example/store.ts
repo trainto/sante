@@ -10,6 +10,6 @@ const initialState = {
   todos: [] as { id: number; title: string; completed: boolean }[],
 };
 
-const { useSante, dispatch } = createSante<typeof initialState>(initialState, { produce });
+const { useSante, dispatch } = createSante(initialState, { produce });
 
 export { useSante, dispatch };
