@@ -27,9 +27,9 @@
   "types": "dist/index.d.ts",
   "exports": {
     ".": {
+      "types": "./dist/index.d.ts",
       "import": "./dist/sante.js",
-      "require": "./dist/sante.umd.cjs",
-      "types": "./dist/index.d.ts"
+      "require": "./dist/sante.umd.cjs"
     }
   },
   "files": [
