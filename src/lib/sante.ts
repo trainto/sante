@@ -12,7 +12,7 @@ const createSante = <T extends Record<keyof T, T[keyof T]>>(
     cache.set(key, initalState[key]);
   }
 
-  const useSante = <K extends keyof T>(key: K[]) => {
+  const useSante = <K extends keyof T>(key: K[] | K) => {
     const prevSnapshot = useRef<Pick<T, K>>(null);
 
     const createSubscriber = useCallback((key: (keyof T)[]) => {
@@ -24,7 +24,7 @@ const createSante = <T extends Record<keyof T, T[keyof T]>>(
     }, []);
 
     const getSnapshot = useCallback(() => {
-      const current = key.reduce(
+      const current = (Array.isArray(key) ? key : [key]).reduce(
         (acc, k) => {
           if (cache.has(k) === false) {
             throw new Error(`Key "${String(k)}" not found in cache.`);
@@ -51,7 +51,7 @@ const createSante = <T extends Record<keyof T, T[keyof T]>>(
     }, [key]);
 
     const snapshot = useSyncExternalStore<Pick<T, K>>(
-      createSubscriber(key),
+      createSubscriber(Array.isArray(key) ? key : [key]),
       getSnapshot,
       getSnapshot,
     );
