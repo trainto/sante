@@ -1,8 +1,8 @@
-class Cache<T, K extends keyof T> {
-  private cache = new Map<K, T[K]>();
-  private subscribers = new Map<K, Set<() => void>>();
+class Cache<T> {
+  private cache = new Map<keyof T, T[keyof T]>();
+  private subscribers = new Map<keyof T, Set<() => void>>();
 
-  subscribe(key: K, callback: () => void) {
+  subscribe(key: keyof T, callback: () => void) {
     const callbacks = this.subscribers.get(key);
     if (callbacks) {
       callbacks.add(callback);
@@ -15,16 +15,16 @@ class Cache<T, K extends keyof T> {
     };
   }
 
-  get<KSpecific extends K>(key: KSpecific): T[KSpecific] | undefined {
-    const value = this.cache.get(key);
-    if (value !== undefined) {
-      return value as T[KSpecific];
-    }
-
-    return undefined;
+  has(key: keyof T): boolean {
+    return this.cache.has(key);
   }
 
-  set(key: K, value: T[K]) {
+  get<K extends keyof T>(key: K): T[K] | undefined {
+    const value = this.cache.get(key);
+    return value as T[K] | undefined;
+  }
+
+  set(key: keyof T, value: T[keyof T]) {
     this.cache.set(key, value);
     const callbacks = this.subscribers.get(key);
     if (callbacks) {
