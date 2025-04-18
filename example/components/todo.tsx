@@ -18,10 +18,7 @@ const Todo = () => {
               checked={todo.completed}
               onChange={() =>
                 dispatch('todos', (prev) => {
-                  if (prev == null) return [];
-                  const newTodos = [...prev];
-                  newTodos[i] = { ...newTodos[i], completed: !newTodos[i].completed };
-                  return newTodos;
+                  prev[i].completed = !prev[i].completed;
                 })
               }
             />
@@ -33,14 +30,14 @@ const Todo = () => {
       <input type="text" value={newTitle} onChange={(e) => setNewTitle(e.target.value)} />
       <button
         onClick={() => {
-          dispatch('todos', (prev) => [
-            ...(prev ?? []),
-            {
-              id: prev == null ? 1 : prev[prev.length - 1].id + 1,
+          dispatch('todos', (prev) => {
+            const newTodo = {
+              id: prev.length === 0 ? 1 : prev[prev.length - 1].id + 1,
               title: newTitle,
               completed: false,
-            },
-          ]);
+            };
+            prev.push(newTodo);
+          });
           setNewTitle('');
         }}
       >
