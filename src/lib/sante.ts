@@ -81,7 +81,11 @@ const createSante = <T extends Record<keyof T, T[keyof T]>>(
     }
   };
 
-  return { useSante, dispatch };
+  const getCached = <K extends keyof T>(key: K) => {
+    return cache.get(key);
+  };
+
+  return { useSante, dispatch, getCached };
 };
 
 export { createSante };
