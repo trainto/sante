@@ -26,16 +26,16 @@ const createSante = <T extends Record<keyof T, T[keyof T]>>(
     const getSnapshot = useCallback(() => {
       const current = key.reduce(
         (acc, k) => {
-          const val = cache.get(k);
-          if (val != null) {
-            acc[k] = val;
+          if (cache.has(k) === false) {
+            throw new Error(`Key "${String(k)}" not found in cache.`);
           }
+          acc[k] = cache.get(k) as T[K];
           return acc;
         },
         {} as Pick<T, K>,
       );
 
-      if (prevSnapshot.current == null) {
+      if (prevSnapshot.current === null) {
         prevSnapshot.current = current;
         return current;
       }
