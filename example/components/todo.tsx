@@ -4,7 +4,7 @@ import { dispatch, useSante } from '../store';
 const Todo = () => {
   const [newTitle, setNewTitle] = useState('');
 
-  const { todos } = useSante(['todos']);
+  const { todos } = useSante('todos');
 
   return (
     <div>

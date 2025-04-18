@@ -1,7 +1,7 @@
 import { dispatch, useSante } from '../store';
 
 const Counter = () => {
-  const { counter } = useSante(['counter']);
+  const { counter } = useSante('counter');
 
   return (
     <div>

@@ -1,7 +1,7 @@
 import { dispatch, useSante } from '../store';
 
 const User = () => {
-  const { user } = useSante(['user']);
+  const { user } = useSante('user');
 
   return (
     <div>
