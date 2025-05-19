@@ -1,15 +1,26 @@
 import { useCallback, useRef, useSyncExternalStore } from 'react';
 import Cache from './cache';
+import Persistence from './persistence';
 
 const createSante = <T extends Record<keyof T, T[keyof T]>>(
   initalState: T,
   options?: {
+    persist?: { key: (keyof T)[] | 'ALL'; storage?: 'local' | 'session' };
     produce?: (s: T[keyof T], r: (r: T[keyof T]) => void | T[keyof T]) => T[keyof T];
   },
 ) => {
   const cache = new Cache<T>();
   for (const key in initalState) {
     cache.set(key, initalState[key]);
+  }
+
+  if (options?.persist) {
+    const persistence = Persistence(options.persist.storage);
+    const storedValue = persistence.loadState();
+    const parsedValue = JSON.parse(storedValue);
+    for (const key in parsedValue) {
+      cache.set(key as keyof T, parsedValue[key]);
+    }
   }
 
   const useSante = <K extends keyof T>(key: K[] | K) => {
@@ -60,6 +71,7 @@ const createSante = <T extends Record<keyof T, T[keyof T]>>(
   };
 
   const dispatch = <K extends keyof T>(key: K, valueOrFn: T[K] | ((prev: T[K]) => T[K] | void)) => {
+    let newValue = valueOrFn;
     if (valueOrFn instanceof Function) {
       if (cache.has(key) === false) {
         throw new Error(`Key "${String(key)}" not found in cache.`);
@@ -75,9 +87,14 @@ const createSante = <T extends Record<keyof T, T[keyof T]>>(
             }
           })
         : valueOrFn(prev as T[K]);
-      cache.set(key, next as T[K]);
-    } else {
-      cache.set(key, valueOrFn);
+
+      newValue = next as T[K];
+    }
+
+    cache.set(key, newValue as T[K]);
+
+    if (options?.persist && (options.persist.key === 'ALL' || options.persist.key.includes(key))) {
+      Persistence(options.persist.storage).saveState(key, newValue);
     }
   };
 
