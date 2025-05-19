@@ -3,6 +3,8 @@ import { dispatch, useSante } from '../store';
 const Counter = () => {
   const { counter } = useSante('counter');
 
+  console.log('Counter component rendered', counter);
+
   return (
     <div>
       <h2>Counter</h2>

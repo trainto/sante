@@ -10,6 +10,9 @@ const initialState = {
   todos: [] as { id: number; title: string; completed: boolean }[],
 };
 
-const { useSante, dispatch } = createSante(initialState, { produce });
+const { useSante, dispatch } = createSante(initialState, {
+  produce,
+  persist: { key: ['counter'] },
+});
 
 export { useSante, dispatch };
