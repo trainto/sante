@@ -1,0 +1,10 @@
+{
+  "extends": "./tsconfig.lib.json",
+  "compilerOptions": {
+    "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.test.tsbuildinfo",
+    "baseUrl": ".",
+    "paths": { "@trainto/sante": ["./src/index.ts"] },
+    "types": ["node"]
+  },
+  "include": ["src", "tests", "docs", "vitest.config.ts"]
+}
