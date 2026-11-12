@@ -8,6 +8,29 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllGlobals());
 
 describe('persistence', () => {
+  it('falls back to initial state even when the error reporter throws', () => {
+    localStorage.setItem('sante-persistence:test', '{broken');
+    const onError = vi.fn(() => {
+      throw new Error('Reporter failed');
+    });
+    const store = createSante({ count: 0 }, { persist: { name: 'test', key: 'ALL', onError } });
+    expect(store.getCached('count')).toBe(0);
+    expect(onError).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps dispatch usable when both storage and the error reporter throw', () => {
+    const onError = vi.fn(() => {
+      throw new Error('Reporter failed');
+    });
+    const store = createSante({ count: 0 }, { persist: { name: 'test', key: 'ALL', onError } });
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new Error('QuotaExceededError');
+    });
+    expect(() => store.dispatch('count', 1)).not.toThrow();
+    expect(store.getCached('count')).toBe(1);
+    expect(onError).toHaveBeenCalledTimes(1);
+  });
+
   it('isolates stores by name', () => {
     const first = createSante({ count: 0 }, { persist: { name: 'first', key: 'ALL' } });
     first.dispatch('count', 42);

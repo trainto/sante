@@ -10,6 +10,14 @@ export default function Persistence({ name, storage = 'local', onError }: Persis
   }
   const storageKey = `sante-persistence:${name}`;
 
+  const reportError = (error: unknown) => {
+    try {
+      onError?.(error);
+    } catch {
+      // Error reporting must not prevent restoring or updating live state.
+    }
+  };
+
   const loadState = (): Record<string, unknown> => {
     if (typeof window === 'undefined') return {};
     try {
@@ -21,7 +29,7 @@ export default function Persistence({ name, storage = 'local', onError }: Persis
       }
       return parsedValue as Record<string, unknown>;
     } catch (error) {
-      onError?.(error);
+      reportError(error);
       return {};
     }
   };
@@ -31,7 +39,7 @@ export default function Persistence({ name, storage = 'local', onError }: Persis
     try {
       window[`${storage}Storage`].setItem(storageKey, JSON.stringify(state));
     } catch (error) {
-      onError?.(error);
+      reportError(error);
     }
   };
 

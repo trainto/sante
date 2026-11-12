@@ -1,6 +1,6 @@
 import { useCallback, useMemo, useRef, useSyncExternalStore } from 'react';
-import Cache, { normalizeKey } from './cache';
-import Persistence, { type PersistenceOptions } from './persistence';
+import Cache, { normalizeKey } from './cache.js';
+import Persistence, { type PersistenceOptions } from './persistence.js';
 
 type Produce<T> = (
   state: T[keyof T],
