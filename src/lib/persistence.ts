@@ -1,24 +1,38 @@
-export default function Persistence(storage: 'local' | 'session' = 'local') {
-  const storageKey = `sante-persistence`;
+export type PersistenceOptions = {
+  name: string;
+  storage?: 'local' | 'session';
+  onError?: (error: unknown) => void;
+};
 
-  const loadState = () => {
-    if (typeof window !== 'undefined') {
+export default function Persistence({ name, storage = 'local', onError }: PersistenceOptions) {
+  if (typeof name !== 'string' || name.trim() === '') {
+    throw new Error('Persistence requires a non-empty store name.');
+  }
+  const storageKey = `sante-persistence:${name}`;
+
+  const loadState = (): Record<string, unknown> => {
+    if (typeof window === 'undefined') return {};
+    try {
       const storedValue = window[`${storage}Storage`].getItem(storageKey);
-      return storedValue ? storedValue : '{}';
+      if (storedValue === null) return {};
+      const parsedValue: unknown = JSON.parse(storedValue);
+      if (parsedValue === null || typeof parsedValue !== 'object' || Array.isArray(parsedValue)) {
+        throw new Error('Persisted state must be a JSON object.');
+      }
+      return parsedValue as Record<string, unknown>;
+    } catch (error) {
+      onError?.(error);
+      return {};
     }
-
-    return '{}';
   };
 
-  const saveState = (key: string | number | symbol, value: unknown) => {
-    setTimeout(() => {
-      if (typeof window !== 'undefined') {
-        const storedValue = loadState();
-        const parsedValue = storedValue ? JSON.parse(storedValue) : {};
-        parsedValue[key] = value;
-        window[`${storage}Storage`].setItem(storageKey, JSON.stringify(parsedValue));
-      }
-    });
+  const saveState = (state: Record<string, unknown>) => {
+    if (typeof window === 'undefined') return;
+    try {
+      window[`${storage}Storage`].setItem(storageKey, JSON.stringify(state));
+    } catch (error) {
+      onError?.(error);
+    }
   };
 
   return { loadState, saveState };

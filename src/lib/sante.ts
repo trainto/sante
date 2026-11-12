@@ -1,108 +1,123 @@
-import { useCallback, useRef, useSyncExternalStore } from 'react';
-import Cache from './cache';
-import Persistence from './persistence';
+import { useCallback, useMemo, useRef, useSyncExternalStore } from 'react';
+import Cache, { normalizeKey } from './cache';
+import Persistence, { type PersistenceOptions } from './persistence';
 
-const createSante = <T extends Record<keyof T, T[keyof T]>>(
-  initalState: T,
-  options?: {
-    persist?: { key: (keyof T)[] | 'ALL'; storage?: 'local' | 'session' };
-    produce?: (s: T[keyof T], r: (r: T[keyof T]) => void | T[keyof T]) => T[keyof T];
-  },
-) => {
+type Produce<T> = (
+  state: T[keyof T],
+  recipe: (draft: T[keyof T]) => T[keyof T] | void,
+) => T[keyof T];
+
+export type SanteOptions<T> = {
+  persist?: PersistenceOptions & { key: readonly Extract<keyof T, string | number>[] | 'ALL' };
+  produce?: Produce<T>;
+};
+
+export type SanteStore<T, WithProduce extends boolean = false> = {
+  useSante: <K extends keyof T>(key: K | readonly K[]) => Pick<T, K>;
+  dispatch: {
+    <K extends keyof T>(
+      key: K,
+      updater: (prev: T[K]) => NoInfer<WithProduce extends true ? T[K] | void : T[K]>,
+    ): void;
+    <K extends keyof T, V extends NoInfer<T[K]>>(
+      key: K,
+      value: V extends (...args: never[]) => unknown ? never : V,
+    ): void;
+  };
+  getCached: <K extends keyof T>(key: K) => T[K] | undefined;
+};
+
+function snapshotReader<T, K extends keyof T>(cache: Cache<T>, keys: readonly K[]) {
+  let snapshot: Pick<T, K> | undefined;
+  return () => {
+    for (const key of keys) {
+      if (!cache.has(key)) throw new Error(`Key "${String(key)}" not found in cache.`);
+    }
+    const previous = snapshot;
+    if (previous && keys.every((key) => Object.is(previous[key], cache.get(key)))) return previous;
+    snapshot = Object.fromEntries(keys.map((key) => [key, cache.get(key)])) as Pick<T, K>;
+    return snapshot;
+  };
+}
+
+function createSante<T extends object>(
+  initialState: T,
+  options: SanteOptions<T> & { produce: Produce<T> },
+): SanteStore<T, true>;
+function createSante<T extends object>(initialState: T, options?: SanteOptions<T>): SanteStore<T>;
+function createSante<T extends object>(initialState: T, options?: SanteOptions<T>) {
   const cache = new Cache<T>();
-  for (const key in initalState) {
-    cache.set(key, initalState[key]);
+  const serverCache = new Cache<T>();
+  const initialKeys = Reflect.ownKeys(initialState) as (keyof T)[];
+  for (const key of initialKeys) {
+    cache.set(key, initialState[key]);
+    serverCache.set(key, initialState[key]);
   }
 
-  if (options?.persist) {
-    const persistence = Persistence(options.persist.storage);
-    const storedValue = persistence.loadState();
-    const parsedValue = JSON.parse(storedValue);
-    for (const key in parsedValue) {
-      cache.set(key as keyof T, parsedValue[key]);
+  const persistence = options?.persist ? Persistence(options.persist) : undefined;
+  const persistedKeys = initialKeys.filter((key) => {
+    if (typeof key === 'symbol' || !options?.persist) return false;
+    return (
+      options.persist.key === 'ALL' ||
+      options.persist.key.some((persistedKey) => normalizeKey(persistedKey) === normalizeKey(key))
+    );
+  });
+  if (persistence) {
+    const storedState = persistence.loadState();
+    for (const key of persistedKeys) {
+      if (Object.prototype.hasOwnProperty.call(storedState, key)) {
+        cache.set(key, storedState[key as string] as T[typeof key]);
+      }
     }
   }
 
-  const useSante = <K extends keyof T>(key: K[] | K) => {
-    const prevSnapshot = useRef<Pick<T, K>>(null);
+  const useSante = <K extends keyof T>(key: K | readonly K[]) => {
+    const requestedKeys = [...new Set((Array.isArray(key) ? key : [key]).map(normalizeKey))] as K[];
+    const previousKeys = useRef<readonly K[] | null>(null);
+    if (
+      previousKeys.current === null ||
+      previousKeys.current.length !== requestedKeys.length ||
+      requestedKeys.some((value, index) => value !== previousKeys.current?.[index])
+    ) {
+      previousKeys.current = requestedKeys;
+    }
+    const keys = previousKeys.current;
 
-    const createSubscriber = useCallback((key: (keyof T)[]) => {
-      return (onStoreChange: () => void) => {
-        const unSubscribers = key.map((k) => cache.subscribe(k, onStoreChange));
-
-        return () => unSubscribers.forEach((u) => u());
-      };
-    }, []);
-
-    const getSnapshot = useCallback(() => {
-      const current = (Array.isArray(key) ? key : [key]).reduce(
-        (acc, k) => {
-          if (cache.has(k) === false) {
-            throw new Error(`Key "${String(k)}" not found in cache.`);
-          }
-          acc[k] = cache.get(k) as T[K];
-          return acc;
-        },
-        {} as Pick<T, K>,
-      );
-
-      if (prevSnapshot.current === null) {
-        prevSnapshot.current = current;
-        return current;
-      }
-
-      for (const k in current) {
-        if (current[k] !== prevSnapshot.current[k]) {
-          prevSnapshot.current = current;
-          return current;
-        }
-      }
-
-      return prevSnapshot.current;
-    }, [key]);
-
-    const snapshot = useSyncExternalStore<Pick<T, K>>(
-      createSubscriber(Array.isArray(key) ? key : [key]),
-      getSnapshot,
-      getSnapshot,
+    const subscribe = useCallback(
+      (onStoreChange: () => void) => {
+        const unsubscribe = keys.map((selectedKey) => cache.subscribe(selectedKey, onStoreChange));
+        return () => unsubscribe.forEach((stop) => stop());
+      },
+      [keys],
     );
-
-    return snapshot;
+    const getSnapshot = useMemo(() => snapshotReader(cache, keys), [keys]);
+    const getServerSnapshot = useMemo(() => snapshotReader(serverCache, keys), [keys]);
+    return useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
   };
 
   const dispatch = <K extends keyof T>(key: K, valueOrFn: T[K] | ((prev: T[K]) => T[K] | void)) => {
-    let newValue = valueOrFn;
-    if (valueOrFn instanceof Function) {
-      if (cache.has(key) === false) {
-        throw new Error(`Key "${String(key)}" not found in cache.`);
-      }
-
-      const prev = cache.get(key);
-
-      const next = options?.produce
-        ? options.produce(prev as T[K], (draft) => {
-            const result = valueOrFn(draft as T[K]);
-            if (result != null) {
-              return result;
-            }
-          })
-        : valueOrFn(prev as T[K]);
-
-      newValue = next as T[K];
-    }
-
-    cache.set(key, newValue as T[K]);
-
-    if (options?.persist && (options.persist.key === 'ALL' || options.persist.key.includes(key))) {
-      Persistence(options.persist.storage).saveState(key, newValue);
+    if (!cache.has(key)) throw new Error(`Key "${String(key)}" not found in cache.`);
+    const prev = cache.get(key) as T[K];
+    const next =
+      typeof valueOrFn === 'function'
+        ? options?.produce
+          ? options.produce(prev, (draft) =>
+              (valueOrFn as (prev: T[K]) => T[K] | void)(draft as T[K]),
+            )
+          : (valueOrFn as (prev: T[K]) => T[K] | void)(prev)
+        : valueOrFn;
+    const changed = cache.set(key, next as T[K]);
+    if (changed && persistence && persistedKeys.includes(normalizeKey(key))) {
+      persistence.saveState(
+        Object.fromEntries(
+          persistedKeys.map((persistedKey) => [persistedKey, cache.get(persistedKey)]),
+        ),
+      );
     }
   };
 
-  const getCached = <K extends keyof T>(key: K) => {
-    return cache.get(key);
-  };
-
+  const getCached = <K extends keyof T>(key: K) => cache.get(key);
   return { useSante, dispatch, getCached };
-};
+}
 
 export { createSante };

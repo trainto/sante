@@ -12,7 +12,7 @@ const initialState = {
 
 const { useSante, dispatch } = createSante(initialState, {
   produce,
-  persist: { key: ['counter'] },
+  persist: { name: 'example', key: ['counter'] },
 });
 
 export { useSante, dispatch };
