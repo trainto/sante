@@ -4,6 +4,13 @@ A tiny React state-management library. Create a store, subscribe to top-level ke
 
 Sante(상태) means state in Korean. Supports React 18 and later, TypeScript 5.4 and later, and both ESM and CommonJS packages.
 
+This guide describes the **0.3.0 API**. Check the version available on npm with `npm view @trainto/sante version`, or the version installed in your app with `npm ls @trainto/sante` (`pnpm list @trainto/sante` for pnpm). If you use 0.2.3, read the upgrade guide before updating.
+
+- Subscribe to the top-level fields each component needs.
+- Update and read state outside React without a provider.
+- Use immutable updates, or opt into Immer for draft updates.
+- Persist selected fields in local or session storage.
+
 - [Quick start](#quick-start)
 - [Reading state](#reading-state)
 - [Updating objects and arrays](#updating-objects-and-arrays)
@@ -267,6 +274,8 @@ If the factory also enables persistence, the name identifies durable browser sta
 ## Upgrading from 0.2.3
 
 0.3.0 includes compatibility changes. Valid existing calls to `createSante(initialState)`, `useSante(key)`, `dispatch(key, valueOrReturningUpdater)`, and `getCached(key)` keep the same API. Ordinary stores do not need a `name`; it is required only when enabling persistence.
+
+The release fixes subscriptions when selected keys change, uses `Object.is` to detect state changes, isolates persisted stores by name, and uses the initial state for server rendering and the first hydration snapshot. It also supplies separate TypeScript declarations for ESM and CommonJS consumers. Review the checks below before upgrading an existing app.
 
 | Existing behavior | What to check when upgrading |
 | --- | --- |
