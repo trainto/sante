@@ -21,7 +21,6 @@ This guide describes the **0.3.0 API**. Check the version available on npm with 
 - [Upgrading from 0.2.3](#upgrading-from-023)
 - [API reference](#api-reference)
 - [Development](#development)
-- [Publishing to npm](#publishing-to-npm)
 
 ## Quick start
 
@@ -362,37 +361,3 @@ pnpm check:package
 ```
 
 README code examples are kept in `docs/`, included in type checking, and checked for synchronization by the tests. Package checks load the built ESM and CommonJS artifacts from an isolated consumer and verify NodeNext and bundler TypeScript resolution.
-
-## Publishing to npm
-
-For maintainers publishing a release:
-
-1. Start from the reviewed release commit with a clean working tree. Confirm that `package.json` contains the intended version, update this guide when the API changes, and check that the version has not already been published with `npm view @trainto/sante versions --json`. npm versions cannot be overwritten. If a version bump is needed, use `npm version patch --no-git-tag-version` (or `minor` / `major` for the chosen release), then review and commit that change before publishing.
-2. Install dependencies with `pnpm install --frozen-lockfile`, then run the checks from the Development section. Build before packaging so that `dist/` contains the release artifacts.
-3. Confirm the npm account and inspect the package contents:
-
-   ```bash
-   npm whoami --registry https://registry.npmjs.org/
-   npm pack --dry-run
-   ```
-
-   The package should contain `README.md`, `package.json`, and the four built files in `dist/`. Review this output before publishing.
-
-4. Publish the verified checkout:
-
-   ```bash
-   npm publish --access public --tag latest --registry https://registry.npmjs.org/
-   ```
-
-   npm may require additional authentication even after `npm login`. If it reports that two-factor authentication is required, follow npm's [2FA setup guide](https://docs.npmjs.com/configuring-two-factor-authentication) for your account and complete the authentication requested during publication.
-
-5. Verify the released version and default install tag:
-
-   ```bash
-   npm view @trainto/sante version
-   npm view @trainto/sante dist-tags --json
-   ```
-
-The [npm package page](https://www.npmjs.com/package/@trainto/sante) gets its README from the published package. A README commit on GitHub alone does not update that page; include the updated README when publishing a new version. If the intended version is already published, choose a new version first.
-
-The existing `pnpm run deploy` shortcut builds and publishes, but it does not run all the checks above. Use `pnpm run deploy` with the explicit `run`: newer pnpm versions also have a separate built-in `deploy` command.
