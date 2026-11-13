@@ -4,7 +4,7 @@ A tiny React state-management library. Create a store, subscribe to top-level ke
 
 Sante(상태) means state in Korean. Supports React 18 and later, TypeScript 5.4 and later, and both ESM and CommonJS packages.
 
-This guide describes the **0.3.0 API**. Check the version available on npm with `npm view @trainto/sante version`, or the version installed in your app with `npm ls @trainto/sante` (`pnpm list @trainto/sante` for pnpm). If you use 0.2.3, read the upgrade guide before updating.
+This guide describes the current source API. **`dispatchMany` is not included in the published 0.3.0 package yet.** Check the version available on npm with `npm view @trainto/sante version`, or the version installed in your app with `npm ls @trainto/sante` (`pnpm list @trainto/sante` for pnpm). If you use 0.2.3, read the upgrade guide before updating.
 
 - Subscribe to the top-level fields each component needs.
 - Update and read state outside React without a provider.
@@ -14,6 +14,7 @@ This guide describes the **0.3.0 API**. Check the version available on npm with 
 - [Quick start](#quick-start)
 - [Reading state](#reading-state)
 - [Updating objects and arrays](#updating-objects-and-arrays)
+- [Updating several fields together](#updating-several-fields-together)
 - [Typing nullable values and empty arrays](#typing-nullable-values-and-empty-arrays)
 - [Using Immer](#using-immer)
 - [Saving state across reloads](#saving-state-across-reloads)
@@ -119,6 +120,38 @@ getCached('name');
 ```
 
 Functions can be stored as values too. For a function-valued top-level key, return the function from an updater: `dispatch('handler', () => nextHandler)`. Functions nested inside objects, such as modal callbacks, can be included in an ordinary object value.
+
+## Updating several fields together
+
+Use `dispatchMany(patch)` when related fields must change together. It replaces the specified top-level values and leaves other fields unchanged. All changed values are committed before subscribers are notified, and a callback subscribed to several changed keys is notified once.
+
+<!-- example:dispatch-many.ts -->
+```ts
+import { createSante } from '@trainto/sante';
+
+type State = {
+  layer: { title: string } | null;
+  crops: string[] | null;
+  count: number;
+};
+
+const initialState: State = { layer: null, crops: null, count: 0 };
+export const { dispatch, dispatchMany, getCached, useSante } = createSante(initialState);
+
+export const closeEditor = () => dispatchMany({ layer: null, crops: null });
+
+export const addCrop = (crop: string) =>
+  dispatchMany((prev) => ({
+    count: prev.count + 1,
+    crops: [...(prev.crops ?? []), crop],
+  }));
+```
+
+An updater receives a snapshot of the current full state and must synchronously return a plain patch object. Its top-level fields are readonly in TypeScript; nested objects and arrays still share references with live state. Keep the updater free of side effects: do not mutate that state or call `dispatch` / `dispatchMany` from it. Return new nested values instead. `dispatchMany` does not apply the configured Immer producer; use immutable updates even when the store enables `produce`.
+
+Every patch key must exist in the initial state. Unknown keys, invalid patch results, and errors thrown while computing or reading the patch are rejected before any of its values are committed. This does not undo side effects performed by an updater or a getter. Empty patches and unchanged values do not notify subscribers. An explicit `undefined` clears a field that permits it; omitting a key leaves it unchanged. Function values in a patch are stored directly, for example `dispatchMany({ handler: nextHandler })`.
+
+If persisted fields change, one complete persisted snapshot is written after notifying subscribers. Storage errors leave all committed live values intact. This guarantees a complete store update, rather than a particular number of React renders.
 
 ## Typing nullable values and empty arrays
 
@@ -339,10 +372,11 @@ export const counterStore = createSante(
 
 | API | Behavior |
 | --- | --- |
-| `createSante(initialState, options?)` | Creates independent state and returns `useSante`, `dispatch`, and `getCached`. Options are `produce` and `persist`. |
+| `createSante(initialState, options?)` | Creates independent state and returns `useSante`, `dispatch`, `dispatchMany`, and `getCached`. Options are `produce` and `persist`. |
 | `useSante(keyOrKeys)` | React hook returning an object with exactly those fields. Accepts a single key or a readonly array. |
 | `dispatch(key, value)` | Replaces one field and synchronously notifies subscribers if its value changed. |
 | `dispatch(key, updater)` | Receives the current field value. Return its next value; with `produce`, a mutation-only recipe is also allowed. |
+| `dispatchMany(patchOrUpdater)` | Atomically replaces specified top-level fields. An updater receives current full state and returns a partial patch; Immer recipes are not applied. |
 | `getCached(key)` | Reads the current field value without subscribing. Returns `undefined` if the key is missing. |
 
 The package has separate ESM and CommonJS declarations for NodeNext and bundler TypeScript resolution. NodeNext ESM projects also need explicit `.js` extensions in their own relative imports.

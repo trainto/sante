@@ -8,6 +8,51 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllGlobals());
 
 describe('persistence', () => {
+  it('writes one complete persisted snapshot for a multi-key update', () => {
+    const store = createSante(
+      { a: 1, b: 2, transient: 'old' },
+      { persist: { name: 'many', key: ['a', 'b'] } },
+    );
+    const write = vi.spyOn(Storage.prototype, 'setItem');
+    store.dispatchMany({ a: 3, b: 4, transient: 'new' });
+    expect(write).toHaveBeenCalledTimes(1);
+    expect(write).toHaveBeenCalledWith('sante-persistence:many', '{"a":3,"b":4}');
+    const restored = createSante({ a: 0, b: 0 }, { persist: { name: 'many', key: 'ALL' } });
+    expect(restored.getCached('a')).toBe(3);
+    expect(restored.getCached('b')).toBe(4);
+  });
+
+  it('does not persist empty, unchanged, unpersisted, or rejected multi-key patches', () => {
+    const store = createSante(
+      { count: 0, name: '' },
+      { persist: { name: 'many', key: ['count'] } },
+    );
+    const write = vi.spyOn(Storage.prototype, 'setItem');
+    store.dispatchMany({});
+    store.dispatchMany({ count: 0 });
+    store.dispatchMany({ name: 'new' });
+    expect(() => store.dispatchMany({ count: 1, missing: true } as { count: number })).toThrow(
+      'not found',
+    );
+    expect(write).not.toHaveBeenCalled();
+    expect(store.getCached('count')).toBe(0);
+  });
+
+  it('keeps every live field updated when persistence and its error reporter fail', () => {
+    const onError = vi.fn(() => {
+      throw new Error('Reporter failed');
+    });
+    const store = createSante({ a: 1, b: 2 }, { persist: { name: 'many', key: 'ALL', onError } });
+    const write = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new Error('QuotaExceededError');
+    });
+    expect(() => store.dispatchMany((prev) => ({ a: prev.a + 1, b: prev.b + 1 }))).not.toThrow();
+    expect(store.getCached('a')).toBe(2);
+    expect(store.getCached('b')).toBe(3);
+    expect(write).toHaveBeenCalledTimes(1);
+    expect(onError).toHaveBeenCalledTimes(1);
+  });
+
   it('falls back to initial state even when the error reporter throws', () => {
     localStorage.setItem('sante-persistence:test', '{broken');
     const onError = vi.fn(() => {
