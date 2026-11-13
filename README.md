@@ -4,7 +4,7 @@ A tiny React state-management library with direct subscriptions to top-level key
 
 Sante(상태) means state in Korean. Supports React 18 and later, TypeScript 5.4 and later, and both ESM and CommonJS packages.
 
-This guide describes the current source API. **Single-key selectors, `dispatchMany`, and the versioned persistence options are not included in the published 0.3.0 package yet.** Check the version available on npm with `npm view @trainto/sante version`, or the version installed in your app with `npm ls @trainto/sante` (`pnpm list @trainto/sante` for pnpm). If you use 0.2.3, read the upgrade guide before updating.
+This guide covers **0.4.0**, including single-key selectors, `dispatchMany`, and versioned persistence. Check your installed version with `npm ls @trainto/sante` (`pnpm list @trainto/sante` for pnpm). If you use 0.2.3, read the upgrade guide before updating.
 
 - **Direct key subscriptions.** A state update notifies subscribers of the changed keys.
 - **Stable multi-key results.** Select several fields with an inline key array, without writing a selector function or adding a shallow-comparison helper.
@@ -24,6 +24,7 @@ This guide describes the current source API. **Single-key selectors, `dispatchMa
 - [Saving state across reloads](#saving-state-across-reloads)
 - [Versioning and validating saved state](#versioning-and-validating-saved-state)
 - [Next.js and server rendering](#nextjs-and-server-rendering)
+- [Upgrading from 0.3.0](#upgrading-from-030)
 - [Upgrading from 0.2.3](#upgrading-from-023)
 - [API reference](#api-reference)
 - [Development](#development)
@@ -450,6 +451,18 @@ If the `initialState` prop changes later, the existing store remains in place. D
 
 If the factory also enables persistence, the name identifies durable browser state, not a server request. Use a stable name for the intended store, user, or widget and keep it consistent across reloads; random request IDs would prevent restoring earlier data. Independent widgets or different accounts sharing one browser should use distinct names. Server requests do not share browser storage, while browser instances with the same name read the same saved entry. Pass one store instance to children when they should share live state.
 
+## Upgrading from 0.3.0
+
+0.4.0 adds `useSante(key, selector)`, `dispatchMany`, and the `version`, `migrate`, and `validate` persistence options. Existing calls without these options retain their behavior; named persistence keeps its existing storage key and format unless you enable `version`. Selectors compare results with `Object.is`, as explained above.
+
+A dependency range of `^0.3.0` does not automatically accept `0.4.0`. Update explicitly:
+
+```bash
+npm install @trainto/sante@^0.4.0
+# or
+pnpm add @trainto/sante@^0.4.0
+```
+
 ## Upgrading from 0.2.3
 
 0.3.0 includes compatibility changes. Valid existing calls to `createSante(initialState)`, `useSante(key)`, `dispatch(key, valueOrReturningUpdater)`, and `getCached(key)` keep the same API. Ordinary stores do not need a `name`; it is required only when enabling persistence.
@@ -466,10 +479,10 @@ The release fixes subscriptions when selected keys change, uses `Object.is` to d
 | State dispatched before server rendering | Pass the desired request state as `initialState` and reuse that initial data for browser hydration. |
 | Persistence writes deferred with a timer | Writes now happen during `dispatch`, and only changed persisted keys trigger a write. |
 
-A dependency range of `^0.2.3` does not automatically accept `0.3.0`. After the release, update explicitly:
+A dependency range of `^0.2.3` does not automatically accept `0.4.0`. Apply the compatibility checks above and update explicitly:
 
 ```bash
-pnpm add @trainto/sante@^0.3.0
+pnpm add @trainto/sante@^0.4.0
 ```
 
 ### Retaining old saved state
