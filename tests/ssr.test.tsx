@@ -109,3 +109,101 @@ it('keeps the server initial snapshot after a multi-key live-state update', () =
   expect(store.getCached('count')).toBe(1);
   expect(store.getCached('label')).toBe('updated');
 });
+
+it('hydrates a selector with initial state before migrated browser state', async () => {
+  const initial = { user: { name: 'Initial', age: 20 } };
+  const options: SanteOptions<typeof initial> = {
+    persist: {
+      name: 'selector-ssr',
+      key: 'ALL',
+      version: 1,
+      migrate: () => ({ user: { name: 'Saved', age: 21 } }),
+    },
+  };
+  vi.stubGlobal('window', undefined);
+  const server = createSante(initial, options);
+  server.dispatch('user', { name: 'Live server', age: 22 });
+  function ServerView() {
+    return <span>{server.useSante('user', (user) => user.name)}</span>;
+  }
+  const html = renderToString(<ServerView />);
+  expect(html).toBe('<span>Initial</span>');
+  vi.unstubAllGlobals();
+  localStorage.setItem('sante-persistence-v1:selector-ssr', '{"version":0,"state":{}}');
+  const browser = createSante(initial, options);
+  const seen: string[] = [];
+  function BrowserView() {
+    const name = browser.useSante('user', (user) => user.name);
+    seen.push(name);
+    return <span>{name}</span>;
+  }
+  const container = document.createElement('div');
+  container.innerHTML = html;
+  const onRecoverableError = vi.fn();
+  let root: ReturnType<typeof hydrateRoot>;
+  await act(async () => {
+    root = hydrateRoot(container, <BrowserView />, { onRecoverableError });
+  });
+  expect(seen[0]).toBe('Initial');
+  expect(container.textContent).toBe('Saved');
+  expect(onRecoverableError).not.toHaveBeenCalled();
+  await act(async () => {
+    root.unmount();
+  });
+});
+
+it('caches allocating selector output across matching server and browser snapshots', async () => {
+  const store = createSante({ user: { name: 'Joon' } });
+  const selector = vi.fn((user: { name: string }) => ({ name: user.name }));
+  function View() {
+    return <span>{store.useSante('user', selector).name}</span>;
+  }
+  const container = document.createElement('div');
+  container.innerHTML = renderToString(<View />);
+  selector.mockClear();
+  const onRecoverableError = vi.fn();
+  const consoleError = vi.spyOn(console, 'error');
+  let root: ReturnType<typeof hydrateRoot>;
+  await act(async () => {
+    root = hydrateRoot(container, <View />, { onRecoverableError });
+  });
+  expect(container.textContent).toBe('Joon');
+  expect(selector).toHaveBeenCalledTimes(1);
+  expect(onRecoverableError).not.toHaveBeenCalled();
+  expect(consoleError).not.toHaveBeenCalled();
+  await act(async () => {
+    root.unmount();
+  });
+});
+
+it('hydrates allocating selector output when persisted input differs from initial state', async () => {
+  const initial = { user: { name: 'Initial' } };
+  const options: SanteOptions<typeof initial> = { persist: { name: 'allocating-ssr', key: 'ALL' } };
+  const selector = (user: { name: string }) => ({ name: user.name });
+  vi.stubGlobal('window', undefined);
+  const server = createSante(initial, options);
+  function ServerView() {
+    return <span>{server.useSante('user', selector).name}</span>;
+  }
+  const html = renderToString(<ServerView />);
+  vi.unstubAllGlobals();
+  localStorage.setItem('sante-persistence:allocating-ssr', '{"user":{"name":"Saved"}}');
+  const browser = createSante(initial, options);
+  function BrowserView() {
+    return <span>{browser.useSante('user', selector).name}</span>;
+  }
+  const container = document.createElement('div');
+  container.innerHTML = html;
+  const onRecoverableError = vi.fn();
+  const consoleError = vi.spyOn(console, 'error');
+  let root: ReturnType<typeof hydrateRoot>;
+  await act(async () => {
+    root = hydrateRoot(container, <BrowserView />, { onRecoverableError });
+  });
+  expect(container.textContent).toBe('Saved');
+  expect(onRecoverableError).not.toHaveBeenCalled();
+  expect(consoleError).not.toHaveBeenCalled();
+  await act(async () => {
+    root.unmount();
+  });
+});
