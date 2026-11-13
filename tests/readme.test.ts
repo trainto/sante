@@ -6,6 +6,7 @@ it.each([
   'quickstart/store.ts',
   'quickstart/Counter.tsx',
   'basic.tsx',
+  'selectors.tsx',
   'dispatch-many.ts',
   'nullable.ts',
   'immer.tsx',

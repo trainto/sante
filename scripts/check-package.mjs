@@ -70,6 +70,20 @@ createSante({ count: 0 }, { persist: { name: 'bad', key: 'ALL', migrate: () => (
 createSante({ count: 0 }, { persist: { name: 'bad', key: 'ALL', version: 1, migrate: () => ({ count: 'wrong' }) } });
 const count: number = store.useSante('count').count;
 void count;
+const selectedName: string = store.useSante('user', user => user.name);
+const selectedCount: number = store.useSante('count', count => count * 2);
+void [selectedName, selectedCount];
+const legacyArgs: Parameters<typeof store.useSante> = [['count', 'user']];
+const legacyReturn: ReturnType<typeof store.useSante> = { count: 0, user: { name: '' } };
+const legacyCount: number = legacyReturn.count;
+void [legacyArgs, legacyReturn, legacyCount];
+// @ts-expect-error Selectors accept a single key in published declarations.
+store.useSante(['count'] as const, value => value);
+// @ts-expect-error Selector inputs cannot widen the field type.
+store.useSante('count', (value: string) => value.length);
+// @ts-expect-error Selector return types are inferred directly.
+const wrongSelection: string = store.useSante('count', count => count * 2);
+void wrongSelection;
 // @ts-expect-error The published API must retain key-specific value types.
 store.dispatch('count', 'wrong');
 // @ts-expect-error The published API must reject unknown keys.

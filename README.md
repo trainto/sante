@@ -4,10 +4,11 @@ A tiny React state-management library with direct subscriptions to top-level key
 
 Sante(상태) means state in Korean. Supports React 18 and later, TypeScript 5.4 and later, and both ESM and CommonJS packages.
 
-This guide describes the current source API. **`dispatchMany` and the versioned persistence options are not included in the published 0.3.0 package yet.** Check the version available on npm with `npm view @trainto/sante version`, or the version installed in your app with `npm ls @trainto/sante` (`pnpm list @trainto/sante` for pnpm). If you use 0.2.3, read the upgrade guide before updating.
+This guide describes the current source API. **Single-key selectors, `dispatchMany`, and the versioned persistence options are not included in the published 0.3.0 package yet.** Check the version available on npm with `npm view @trainto/sante version`, or the version installed in your app with `npm ls @trainto/sante` (`pnpm list @trainto/sante` for pnpm). If you use 0.2.3, read the upgrade guide before updating.
 
 - **Direct key subscriptions.** A state update notifies subscribers of the changed keys.
 - **Stable multi-key results.** Select several fields with an inline key array, without writing a selector function or adding a shallow-comparison helper.
+- **Select within a field.** Read a nested value or array item with a single-key selector; unchanged results skip store-driven renders.
 - Update and read state outside React without a provider.
 - Use immutable updates, or opt into Immer for draft updates.
 - Persist selected fields in local or session storage.
@@ -15,6 +16,7 @@ This guide describes the current source API. **`dispatchMany` and the versioned 
 - [Why key subscriptions?](#why-key-subscriptions)
 - [Quick start](#quick-start)
 - [Reading state](#reading-state)
+- [Selecting part of a field](#selecting-part-of-a-field)
 - [Updating objects and arrays](#updating-objects-and-arrays)
 - [Updating several fields together](#updating-several-fields-together)
 - [Typing nullable values and empty arrays](#typing-nullable-values-and-empty-arrays)
@@ -43,7 +45,7 @@ This gives you two useful defaults:
 
 If you are coming from Zustand, selecting several fields into a new object or array is a common use case for [`useShallow`](https://zustand.docs.pmnd.rs/learn/guides/prevent-rerenders-with-use-shallow). Sante's key-list API handles that selection directly. A single-value Zustand selector generally does not need `useShallow`.
 
-These are guarantees about subscription routing and snapshot stability. Parent renders and local React state can still render a component. Selection is at the top-level key; [Reading state](#reading-state) explains nested fields.
+These are guarantees about subscription routing and snapshot stability. Parent renders and local React state can still render a component. Subscriptions are at the top-level key; [single-key selectors](#selecting-part-of-a-field) can narrow the value that causes a store-driven render.
 
 ## Quick start
 
@@ -99,9 +101,57 @@ Render `<Counter />` in your app. Clicking the button updates `count`; all compo
 - Call `useSante` at the top level of a React component or custom hook.
 - Use `getCached('name')` in event handlers, API helpers, or other ordinary functions. It reads the current value immediately and does not subscribe or cause a render.
 
-The hook returns exactly the selected fields, including when the selection changes. Components subscribe to top-level keys: subscribe to `tels` to observe `tels.mobile`; a dotted key such as `'tels.mobile'` is not a supported selector. Parent renders and local React state can still cause a component to render.
+The hook returns exactly the selected fields, including when the selection changes. Components subscribe to top-level keys: subscribe to `tels` to observe `tels.mobile`; a dotted key such as `'tels.mobile'` is not supported. Use `useSante('tels', tels => tels.mobile)` to select that nested value. Parent renders and local React state can still cause a component to render.
 
 Every key must be present in `initialState`, even if its value is `undefined`. `useSante` and `dispatch` throw for missing keys; `getCached` returns `undefined` for a missing key.
+
+## Selecting part of a field
+
+Pass a selector as the second argument to read part of one field. Unlike `useSante('user')`, which returns `{ user }`, `useSante('user', selector)` returns the selector's result directly. TypeScript infers both the field value and the result.
+
+<!-- example:selectors.tsx -->
+```tsx
+import { createSante } from '@trainto/sante';
+
+type User = { name: string; age: number };
+type Item = { id: string; title: string };
+
+export const { useSante, dispatch } = createSante({
+  user: null as User | null,
+  items: [] as Item[],
+});
+
+export function UserName() {
+  const name = useSante('user', (user) => user?.name ?? 'Guest');
+  return <span>{name}</span>;
+}
+
+export function ItemTitle({ index }: { index: number }) {
+  const item = useSante('items', (items) => items[index]);
+  return <span>{item?.title ?? 'No item'}</span>;
+}
+```
+
+`UserName` subscribes to the `user` key. Replacing `user` with a new object that changes only `age` runs the selector, but its unchanged name skips a store-driven render. Updating an unrelated key does not notify this subscription. `ItemTitle` similarly skips an update when another item changes and the selected item retains its reference. Changing the `index` prop recalculates the selection even without a store update.
+
+Update objects and arrays immutably, as with React state: replace the top-level object or array and return unchanged items as-is. For example, use `dispatch('items', items => items.map((item, i) => i === index ? { ...item, title: 'New' } : item))`. Mutating an existing object does not notify subscribers; selecting an object whose reference stays the same also cannot detect mutations inside it.
+
+For selectors returning a string, number, boolean, or an existing item, no extra memoization is usually needed. Results are compared with **`Object.is`**: equal primitive values match, while objects and arrays match only when they are the same instance.
+
+```ts
+Object.is('Joon', 'Joon'); // true
+Object.is({ name: 'Joon' }, { name: 'Joon' }); // false
+```
+
+For example, `user => user?.name` skips a store-driven render when only `age` changes. But `user => ({ name: user?.name })` builds a new object when the input changes, so an age-only update can still render the component. This affects render optimization, not the correctness of the selected data. Return the name directly when that is all you need. There is no shallow or deep comparison of selector results.
+
+Sante caches the result while the input and selector function stay the same, so returning objects or arrays does not cause an uncached-snapshot render loop.
+
+Inline selectors are supported. A new selector function reference recalculates its result on a React render; an allocating inline selector therefore returns a new reference on a parent render too. If computation is expensive or you need that result reference to survive parent renders, define a selector outside the component or use `useCallback` with all captured values in its dependencies. `useCallback` does not make newly allocated objects equal after an input change. It also does not prevent renders caused by a parent or local React state.
+
+Selectors must be pure and synchronous. They may run more than once during React rendering and must not mutate state, dispatch updates, or perform side effects. Promises are not awaited. Keep captured values and initial state consistent between server rendering and hydration.
+
+This overload accepts **one top-level key**. To read several top-level fields, continue using `useSante(['count', 'label'])`; its returned object remains automatically stable without a selector or shallow-comparison helper. Existing calls without a selector keep their return shape and behavior.
 
 ## Updating objects and arrays
 
@@ -470,6 +520,7 @@ export const counterStore = createSante(
 | --- | --- |
 | `createSante(initialState, options?)` | Creates independent state and returns `useSante`, `dispatch`, `dispatchMany`, and `getCached`. Options are `produce` and `persist`. |
 | `useSante(keyOrKeys)` | React hook returning an object with exactly those fields. Accepts a single key or a readonly array. |
+| `useSante(key, selector)` | React hook subscribing to one key and returning the selector result directly. Store-driven renders are skipped when the result is `Object.is` equal. |
 | `dispatch(key, value)` | Replaces one field and synchronously notifies subscribers if its value changed. |
 | `dispatch(key, updater)` | Receives the current field value. Return its next value; with `produce`, a mutation-only recipe is also allowed. |
 | `dispatchMany(patchOrUpdater)` | Atomically replaces specified top-level fields. An updater receives current full state and returns a partial patch; Immer recipes are not applied. |

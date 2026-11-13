@@ -15,7 +15,11 @@ export type SanteOptions<T> = {
 type StatePatch<T, P> = P & { [K in keyof P]: K extends keyof T ? T[K] : never };
 
 export type SanteStore<T, WithProduce extends boolean = false> = {
-  useSante: <K extends keyof T>(key: K | readonly K[]) => Pick<T, K>;
+  useSante: {
+    <K extends keyof T, R>(key: K, selector: (value: NoInfer<T[K]>) => R): R;
+    // Keep the legacy signature last for Parameters/ReturnType consumers.
+    <K extends keyof T>(key: K | readonly K[]): Pick<T, K>;
+  };
   dispatch: {
     <K extends keyof T>(
       key: K,
@@ -80,7 +84,15 @@ function createSante<T extends object>(initialState: T, options?: SanteOptions<T
     if (needsRewrite) persistence.saveState(getPersistedState());
   }
 
-  const useSante = <K extends keyof T>(key: K | readonly K[]) => {
+  function useSante<K extends keyof T, R>(key: K, selector: (value: NoInfer<T[K]>) => R): R;
+  function useSante<K extends keyof T>(key: K | readonly K[]): Pick<T, K>;
+  function useSante<K extends keyof T, R>(
+    key: K | readonly K[],
+    selector?: (value: T[K]) => R,
+  ): Pick<T, K> | R {
+    if (selector !== undefined && (typeof selector !== 'function' || Array.isArray(key))) {
+      throw new Error('A selector requires a single state key and a function.');
+    }
     const requestedKeys = [...new Set((Array.isArray(key) ? key : [key]).map(normalizeKey))] as K[];
     const previousKeys = useRef<readonly K[] | null>(null);
     if (
@@ -101,8 +113,24 @@ function createSante<T extends object>(initialState: T, options?: SanteOptions<T
     );
     const getSnapshot = useMemo(() => snapshotReader(cache, keys), [keys]);
     const getServerSnapshot = useMemo(() => snapshotReader(serverCache, keys), [keys]);
-    return useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
-  };
+    const readers = useMemo(() => {
+      if (!selector) return [getSnapshot, getServerSnapshot] as const;
+      const selectedKey = keys[0];
+      // Each selector render owns its memo; committed readers keep their own closure.
+      // Browser and server readers share the memo to reuse matching initial selections.
+      let memo: { value: T[K]; selection: R } | undefined;
+      const select = (snapshot: Pick<T, K>) => {
+        const value = snapshot[selectedKey];
+        if (memo && Object.is(memo.value, value)) return memo.selection;
+        const selection = selector(value);
+        // Only cache a successful calculation, including undefined/function results.
+        memo = { value, selection };
+        return selection;
+      };
+      return [() => select(getSnapshot()), () => select(getServerSnapshot())] as const;
+    }, [getSnapshot, getServerSnapshot, keys, selector]);
+    return useSyncExternalStore<Pick<T, K> | R>(subscribe, readers[0], readers[1]);
+  }
 
   const persistChanged = (changedKeys: readonly (keyof T)[]) => {
     if (persistence && changedKeys.some((key) => persistedKeys.includes(normalizeKey(key)))) {

@@ -122,3 +122,41 @@ export function checkPersistenceTypes() {
     },
   });
 }
+
+export function checkSelectorTypes() {
+  const store = createSante({ user: null as { name: string } | null, count: 0 });
+  const oldSingle: { count: number } = store.useSante('count');
+  const oldMultiple: { count: number; user: { name: string } | null } = store.useSante([
+    'count',
+    'user',
+  ] as const);
+  const legacyArgs: Parameters<typeof store.useSante> = ['count'];
+  const legacyArrayArgs: Parameters<typeof store.useSante> = [['count', 'user']];
+  const legacyReturn: ReturnType<typeof store.useSante> = { count: 0, user: null };
+  const legacyCount: number = legacyReturn.count;
+  void [legacyArgs, legacyArrayArgs, legacyReturn, legacyCount];
+  const name: string | undefined = store.useSante('user', (user) => user?.name);
+  const doubled: number = store.useSante('count', (count) => count * 2);
+  const functionValue: () => number = store.useSante('count', (count) => () => count);
+  void [oldSingle, oldMultiple, name, doubled, functionValue];
+  // @ts-expect-error Selectors accept only one key.
+  store.useSante(['count'] as const, (count) => count);
+  // @ts-expect-error Unknown keys remain rejected.
+  store.useSante('missing', (value) => value);
+  // @ts-expect-error The selector must be a function.
+  store.useSante('count', 1);
+  // @ts-expect-error A selector cannot widen the key's input type.
+  store.useSante('count', (value: string) => value.length);
+  // @ts-expect-error Nullable state must be narrowed before accessing fields.
+  store.useSante('user', (user) => user.name);
+  // @ts-expect-error The input is the selected field, not the full state.
+  store.useSante('user', (user) => user?.count);
+  // @ts-expect-error The result retains its inferred type.
+  const wrong: string = store.useSante('count', (count) => count * 2);
+  void wrong;
+  const symbol = Symbol('selector');
+  const keyed = createSante({ 1: 'one', [symbol]: 2 });
+  const numeric: string = keyed.useSante(1, (value) => value.toUpperCase());
+  const symbolic: number = keyed.useSante(symbol, (value) => value * 2);
+  void [numeric, symbolic];
+}
