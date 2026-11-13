@@ -8,7 +8,7 @@ type Produce<T> = (
 ) => T[keyof T];
 
 export type SanteOptions<T> = {
-  persist?: PersistenceOptions & { key: readonly Extract<keyof T, string | number>[] | 'ALL' };
+  persist?: PersistenceOptions<T> & { key: readonly Extract<keyof T, string | number>[] | 'ALL' };
   produce?: Produce<T>;
 };
 
@@ -60,7 +60,6 @@ function createSante<T extends object>(initialState: T, options?: SanteOptions<T
     serverCache.set(key, initialState[key]);
   }
 
-  const persistence = options?.persist ? Persistence(options.persist) : undefined;
   const persistedKeys = initialKeys.filter((key) => {
     if (typeof key === 'symbol' || !options?.persist) return false;
     return (
@@ -68,13 +67,17 @@ function createSante<T extends object>(initialState: T, options?: SanteOptions<T
       options.persist.key.some((persistedKey) => normalizeKey(persistedKey) === normalizeKey(key))
     );
   });
+  const getPersistedState = () =>
+    Object.fromEntries(persistedKeys.map((key) => [key, cache.get(key)]));
+  const persistence = options?.persist ? Persistence(options.persist, persistedKeys) : undefined;
   if (persistence) {
-    const storedState = persistence.loadState();
+    const { state: storedState, needsRewrite } = persistence.loadState();
     for (const key of persistedKeys) {
       if (Object.prototype.hasOwnProperty.call(storedState, key)) {
-        cache.set(key, storedState[key as string] as T[typeof key]);
+        cache.set(key, storedState[key] as T[typeof key]);
       }
     }
+    if (needsRewrite) persistence.saveState(getPersistedState());
   }
 
   const useSante = <K extends keyof T>(key: K | readonly K[]) => {
@@ -103,11 +106,7 @@ function createSante<T extends object>(initialState: T, options?: SanteOptions<T
 
   const persistChanged = (changedKeys: readonly (keyof T)[]) => {
     if (persistence && changedKeys.some((key) => persistedKeys.includes(normalizeKey(key)))) {
-      persistence.saveState(
-        Object.fromEntries(
-          persistedKeys.map((persistedKey) => [persistedKey, cache.get(persistedKey)]),
-        ),
-      );
+      persistence.saveState(getPersistedState());
     }
   };
 

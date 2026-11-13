@@ -70,3 +70,55 @@ export function checkStoreTypes() {
   // @ts-expect-error Persistence requires an explicit store name.
   createSante({ count: 0 }, { persist: { key: 'ALL' } });
 }
+
+export function checkPersistenceTypes() {
+  const initialState = { count: 0, name: '' };
+  const validate = (candidate: unknown): candidate is Partial<{ count: number }> =>
+    candidate !== null && typeof candidate === 'object';
+  const store = createSante(initialState, {
+    persist: { name: 'typed', key: ['count'], version: 1, migrate: () => ({ count: 1 }), validate },
+  });
+  // Partial migration/validation must not narrow the full store's inferred state.
+  store.dispatch('name', 'still available');
+  const name: string = store.useSante('name').name;
+  void name;
+  createSante(initialState, { persist: { name: 'typed', key: 'ALL', validate } });
+  createSante(initialState, {
+    persist: {
+      name: 'typed',
+      key: 'ALL',
+      version: 1,
+      migrate: (saved, version) => {
+        const fromVersion: number = version;
+        void fromVersion;
+        // @ts-expect-error Saved migration input is untrusted until narrowed.
+        void saved.count;
+        return {};
+      },
+    },
+  });
+  createSante(initialState, {
+    // @ts-expect-error Migration requires an explicit schema version.
+    persist: { name: 'typed', key: 'ALL', migrate: () => ({ count: 1 }) },
+  });
+  // @ts-expect-error Schema versions are numeric.
+  createSante(initialState, { persist: { name: 'typed', key: 'ALL', version: '1' } });
+  createSante(initialState, {
+    // @ts-expect-error Migration must return a synchronous partial state.
+    persist: { name: 'typed', key: 'ALL', version: 1, migrate: async () => ({ count: 1 }) },
+  });
+  createSante(initialState, {
+    // @ts-expect-error A migration cannot widen an initialized field to a wrong type.
+    persist: { name: 'typed', key: 'ALL', version: 1, migrate: () => ({ count: 'wrong' }) },
+  });
+  // @ts-expect-error Validators must be synchronous type guards.
+  createSante(initialState, { persist: { name: 'typed', key: 'ALL', validate: async () => true } });
+  createSante(initialState, {
+    persist: {
+      name: 'typed',
+      key: 'ALL',
+      // @ts-expect-error Validators cannot change the store's initialized field types.
+      validate: (candidate: unknown): candidate is Partial<{ count: string }> => candidate !== null,
+    },
+  });
+}

@@ -10,6 +10,7 @@ it.each([
   'nullable.ts',
   'immer.tsx',
   'persistence.ts',
+  'versioned-persistence.ts',
   'migration.ts',
   'ssr/store.ts',
   'ssr/Counter.tsx',

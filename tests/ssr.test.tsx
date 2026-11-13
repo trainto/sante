@@ -2,11 +2,63 @@ import { act } from '@testing-library/react';
 import { hydrateRoot } from 'react-dom/client';
 import { renderToString } from 'react-dom/server';
 import { afterEach, expect, it, vi } from 'vitest';
-import { createSante } from '../src';
+import { createSante, type SanteOptions } from '../src';
 
 afterEach(() => {
   vi.unstubAllGlobals();
   localStorage.clear();
+});
+
+it('does not migrate on the server and hydrates initial state before migrated browser state', async () => {
+  const read = vi.spyOn(Storage.prototype, 'getItem');
+  const migrate = vi.fn(() => ({ count: 42 }));
+  const validation = vi.fn();
+  const options: SanteOptions<{ count: number }> = {
+    persist: {
+      name: 'versioned-ssr',
+      key: 'ALL',
+      version: 1,
+      migrate,
+      validate: (candidate): candidate is Partial<{ count: number }> => {
+        validation(candidate);
+        return candidate !== null && typeof candidate === 'object';
+      },
+    },
+  };
+  vi.stubGlobal('window', undefined);
+  const serverStore = createSante({ count: 0 }, options);
+  serverStore.dispatchMany({ count: 1 });
+  function ServerView() {
+    return <span>{serverStore.useSante('count').count}</span>;
+  }
+  const html = renderToString(<ServerView />);
+  expect(html).toBe('<span>0</span>');
+  expect(read).not.toHaveBeenCalled();
+  expect(migrate).not.toHaveBeenCalled();
+  expect(validation).not.toHaveBeenCalled();
+  vi.unstubAllGlobals();
+  localStorage.setItem(
+    'sante-persistence-v1:versioned-ssr',
+    '{"version":0,"state":{"counter":42}}',
+  );
+  const browserStore = createSante({ count: 0 }, options);
+  function BrowserView() {
+    return <span>{browserStore.useSante('count').count}</span>;
+  }
+  const container = document.createElement('div');
+  container.innerHTML = html;
+  const onRecoverableError = vi.fn();
+  let root: ReturnType<typeof hydrateRoot>;
+  await act(async () => {
+    root = hydrateRoot(container, <BrowserView />, { onRecoverableError });
+  });
+  expect(container.textContent).toBe('42');
+  expect(onRecoverableError).not.toHaveBeenCalled();
+  expect(migrate).toHaveBeenCalledTimes(1);
+  expect(validation).toHaveBeenCalledTimes(1);
+  await act(async () => {
+    root.unmount();
+  });
 });
 
 it('hydrates with the server initial state before rendering persisted browser state', async () => {
