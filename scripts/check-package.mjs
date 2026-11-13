@@ -25,9 +25,13 @@ try {
   await writeFile(join(fixture, 'package.json'), JSON.stringify({ private: true, type: 'module' }));
 
   const runtime = `
-const store = createSante({ count: 0 });
+const store = createSante({ count: 0, label: '' });
 store.dispatch('count', prev => prev + 1);
 if (store.getCached('count') !== 1) throw new Error('Package dispatch failed');
+store.dispatchMany(prev => ({ count: prev.count + 1, label: 'many' }));
+if (store.getCached('count') !== 2 || store.getCached('label') !== 'many') {
+  throw new Error('Package dispatchMany failed');
+}
 `;
   await writeFile(
     join(fixture, 'esm.mjs'),
@@ -50,6 +54,8 @@ import { createSante } from '${manifest.name}';
 const store = createSante({ count: 0, user: { name: '' } });
 store.dispatch('count', prev => prev + 1);
 store.dispatch('user', { name: 'next' });
+store.dispatchMany({ count: 2, user: { name: 'many' } });
+store.dispatchMany(prev => ({ count: prev.count + 1 }));
 const count: number = store.useSante('count').count;
 void count;
 // @ts-expect-error The published API must retain key-specific value types.
@@ -58,6 +64,12 @@ store.dispatch('count', 'wrong');
 store.dispatch('missing', 1);
 // @ts-expect-error A plain updater must return state, even for objects with a name property.
 store.dispatch('user', prev => { prev.name = 'next'; });
+// @ts-expect-error Patch values retain key-specific types in published declarations.
+store.dispatchMany({ count: 'wrong' });
+// @ts-expect-error Unknown patch keys are rejected, including updater results.
+store.dispatchMany(() => ({ count: 1, missing: true }));
+// @ts-expect-error A numeric field cannot be set to undefined.
+store.dispatchMany({ count: undefined });
 `;
   for (const extension of ['mts', 'cts', 'ts']) {
     await writeFile(join(fixture, `consumer.${extension}`), consumer);

@@ -12,6 +12,8 @@ export type SanteOptions<T> = {
   produce?: Produce<T>;
 };
 
+type StatePatch<T, P> = P & { [K in keyof P]: K extends keyof T ? T[K] : never };
+
 export type SanteStore<T, WithProduce extends boolean = false> = {
   useSante: <K extends keyof T>(key: K | readonly K[]) => Pick<T, K>;
   dispatch: {
@@ -23,6 +25,10 @@ export type SanteStore<T, WithProduce extends boolean = false> = {
       key: K,
       value: V extends (...args: never[]) => unknown ? never : V,
     ): void;
+  };
+  dispatchMany: {
+    <P extends Partial<T>>(updater: (prev: Readonly<T>) => StatePatch<T, P>): void;
+    <P extends Partial<T>>(patch: StatePatch<T, P>): void;
   };
   getCached: <K extends keyof T>(key: K) => T[K] | undefined;
 };
@@ -95,6 +101,16 @@ function createSante<T extends object>(initialState: T, options?: SanteOptions<T
     return useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
   };
 
+  const persistChanged = (changedKeys: readonly (keyof T)[]) => {
+    if (persistence && changedKeys.some((key) => persistedKeys.includes(normalizeKey(key)))) {
+      persistence.saveState(
+        Object.fromEntries(
+          persistedKeys.map((persistedKey) => [persistedKey, cache.get(persistedKey)]),
+        ),
+      );
+    }
+  };
+
   const dispatch = <K extends keyof T>(key: K, valueOrFn: T[K] | ((prev: T[K]) => T[K] | void)) => {
     if (!cache.has(key)) throw new Error(`Key "${String(key)}" not found in cache.`);
     const prev = cache.get(key) as T[K];
@@ -107,17 +123,35 @@ function createSante<T extends object>(initialState: T, options?: SanteOptions<T
           : (valueOrFn as (prev: T[K]) => T[K] | void)(prev)
         : valueOrFn;
     const changed = cache.set(key, next as T[K]);
-    if (changed && persistence && persistedKeys.includes(normalizeKey(key))) {
-      persistence.saveState(
-        Object.fromEntries(
-          persistedKeys.map((persistedKey) => [persistedKey, cache.get(persistedKey)]),
-        ),
-      );
+    if (changed) persistChanged([key]);
+  };
+
+  const dispatchMany = (patchOrUpdater: Partial<T> | ((prev: Readonly<T>) => Partial<T>)) => {
+    const patch =
+      typeof patchOrUpdater === 'function'
+        ? patchOrUpdater(
+            Object.fromEntries(initialKeys.map((key) => [key, cache.get(key)])) as Readonly<T>,
+          )
+        : patchOrUpdater;
+    if (patch === null || typeof patch !== 'object' || Array.isArray(patch)) {
+      throw new Error('dispatchMany requires a state patch object.');
     }
+    const prototype = Object.getPrototypeOf(patch);
+    if (prototype !== Object.prototype && prototype !== null) {
+      throw new Error('dispatchMany requires a state patch object.');
+    }
+
+    const keys = Reflect.ownKeys(patch) as (keyof T)[];
+    for (const key of keys) {
+      if (!cache.has(key)) throw new Error(`Key "${String(key)}" not found in cache.`);
+    }
+    // Read all patch values before committing, including potentially throwing getters.
+    const entries = keys.map((key) => [key, patch[key] as T[typeof key]] as const);
+    persistChanged(cache.setMany(entries));
   };
 
   const getCached = <K extends keyof T>(key: K) => cache.get(key);
-  return { useSante, dispatch, getCached };
+  return { useSante, dispatch, dispatchMany, getCached };
 }
 
 export { createSante };

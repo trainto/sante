@@ -45,3 +45,15 @@ it('creates independent stores for separate server requests without browser stor
   first.dispatch('user', 'changed');
   expect(second.getCached('user')).toBe('second');
 });
+
+it('keeps the server initial snapshot after a multi-key live-state update', () => {
+  const store = createSante({ count: 0, label: 'initial' });
+  store.dispatchMany({ count: 1, label: 'updated' });
+  function View() {
+    const { count, label } = store.useSante(['count', 'label']);
+    return <span>{`${count}:${label}`}</span>;
+  }
+  expect(renderToString(<View />)).toBe('<span>0:initial</span>');
+  expect(store.getCached('count')).toBe(1);
+  expect(store.getCached('label')).toBe('updated');
+});

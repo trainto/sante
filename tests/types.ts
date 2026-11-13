@@ -29,6 +29,38 @@ export function checkStoreTypes() {
   // @ts-expect-error A function value must be wrapped in an updater.
   functionStore.dispatch('handler', () => 2);
 
+  store.dispatchMany({ user: { name: 'many' }, optional: undefined });
+  store.dispatchMany((prev) => ({ user: { ...prev.user, name: 'many' } }));
+  functionStore.dispatchMany({ handler: () => 2 });
+  // @ts-expect-error Unknown keys are rejected in object patches.
+  store.dispatchMany({ user: { name: 'many' }, missing: true });
+  // @ts-expect-error Unknown keys are rejected in updater results too.
+  store.dispatchMany(() => ({ user: { name: 'many' }, missing: true }));
+  // @ts-expect-error Patch values must match each field's type.
+  store.dispatchMany({ user: 'wrong' });
+  // @ts-expect-error undefined is allowed only when the field permits it.
+  store.dispatchMany({ user: undefined });
+  // @ts-expect-error Updater result values must match each field's type.
+  store.dispatchMany(() => ({ user: undefined }));
+  // @ts-expect-error Multiple-key updaters must return a patch, not void.
+  store.dispatchMany(() => {});
+  // @ts-expect-error Async updaters cannot be committed synchronously.
+  store.dispatchMany(async () => ({ user: { name: 'many' } }));
+  store.dispatchMany((prev) => {
+    // @ts-expect-error The updater receives a readonly top-level state snapshot.
+    prev.optional = 'changed';
+    return {};
+  });
+  // @ts-expect-error Immer does not enable mutation-only dispatchMany updaters.
+  immutable.dispatchMany(() => {});
+
+  const symbol = Symbol('typed');
+  const keyed = createSante({ 1: 'first', [symbol]: 0 });
+  keyed.dispatchMany({ 1: 'second', [symbol]: 1 });
+  keyed.dispatchMany((prev) => ({ 1: prev[1], [symbol]: prev[symbol] + 1 }));
+  // @ts-expect-error Numeric and symbol key values retain their specific types.
+  keyed.dispatchMany({ 1: 1, [symbol]: 'wrong' });
+
   const options: SanteOptions<{ user: { name: string } }> = {};
   const optionalProducer = createSante({ user: { name: '' } }, options);
   // @ts-expect-error An optional producer cannot safely permit void updaters.
