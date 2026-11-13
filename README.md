@@ -1,16 +1,18 @@
 # Sante
 
-A tiny React state-management library. Create a store, subscribe to top-level keys, and update those keys from components or ordinary functions.
+A tiny React state-management library with direct subscriptions to top-level keys. Pick the fields your component needs; Sante handles subscription routing and keeps the selected result stable.
 
 Sante(상태) means state in Korean. Supports React 18 and later, TypeScript 5.4 and later, and both ESM and CommonJS packages.
 
 This guide describes the current source API. **`dispatchMany` and the versioned persistence options are not included in the published 0.3.0 package yet.** Check the version available on npm with `npm view @trainto/sante version`, or the version installed in your app with `npm ls @trainto/sante` (`pnpm list @trainto/sante` for pnpm). If you use 0.2.3, read the upgrade guide before updating.
 
-- Subscribe to the top-level fields each component needs.
+- **Direct key subscriptions.** A state update notifies subscribers of the changed keys.
+- **Stable multi-key results.** Select several fields with an inline key array, without writing a selector function or adding a shallow-comparison helper.
 - Update and read state outside React without a provider.
 - Use immutable updates, or opt into Immer for draft updates.
 - Persist selected fields in local or session storage.
 
+- [Why key subscriptions?](#why-key-subscriptions)
 - [Quick start](#quick-start)
 - [Reading state](#reading-state)
 - [Updating objects and arrays](#updating-objects-and-arrays)
@@ -23,6 +25,25 @@ This guide describes the current source API. **`dispatchMany` and the versioned 
 - [Upgrading from 0.2.3](#upgrading-from-023)
 - [API reference](#api-reference)
 - [Development](#development)
+
+## Why key subscriptions?
+
+Reading several fields is a single hook call:
+
+```tsx
+const { count, label } = useSante(['count', 'label']);
+```
+
+Sante registers this subscription against `count` and `label`. An update to another key, such as `draft`, does not notify it. The hook also keeps its returned object stable while the key selection and its values remain the same, comparing each selected value with `Object.is`.
+
+This gives you two useful defaults:
+
+- **Updates are routed by key.** Subscribers to unrelated keys are not called just to discover that their selected values stayed the same.
+- **Selection results are cached for you.** Inline key arrays work across renders. You do not need to memoize the array or configure equality handling for the returned object.
+
+If you are coming from Zustand, selecting several fields into a new object or array is a common use case for [`useShallow`](https://zustand.docs.pmnd.rs/learn/guides/prevent-rerenders-with-use-shallow). Sante's key-list API handles that selection directly. A single-value Zustand selector generally does not need `useShallow`.
+
+These are guarantees about subscription routing and snapshot stability. Parent renders and local React state can still render a component. Selection is at the top-level key; [Reading state](#reading-state) explains nested fields.
 
 ## Quick start
 
@@ -40,7 +61,11 @@ For a client-side React app, create a shared store once in `src/store.ts`. Creat
 ```ts
 import { createSante } from '@trainto/sante';
 
-export const { useSante, dispatch, getCached } = createSante({ count: 0 });
+export const { useSante, dispatch, getCached } = createSante({
+  count: 0,
+  label: 'Count',
+  draft: '',
+});
 
 export const increment = () => dispatch('count', (prev) => prev + 1);
 ```
@@ -54,14 +79,18 @@ Then use it from `src/Counter.tsx`:
 import { increment, useSante } from './store';
 
 export function Counter() {
-  const { count } = useSante('count');
-  return <button onClick={increment}>Count: {count}</button>;
+  const { count, label } = useSante(['count', 'label']);
+  return (
+    <button onClick={increment}>
+      {label}: {count}
+    </button>
+  );
 }
 ```
 
-Render `<Counter />` in your app. Clicking the button updates `count`; all components subscribed to that key see the new value.
+Render `<Counter />` in your app. Clicking the button updates `count`; all components subscribed to that key see the new value. Updating `draft` with `dispatch('draft', 'new text')` does not notify the counter's subscription. The inline `['count', 'label']` selection needs no memoization or shallow-comparison helper.
 
-`useSante('count')` returns `{ count }`, so destructure the result. The `'use client'` directive is useful in Next.js and harmless in a normal React app. For request-specific server data, use the store factory pattern below.
+`useSante(['count', 'label'])` returns `{ count, label }`; selecting one key with `useSante('count')` returns `{ count }`. Destructure either result. The `'use client'` directive is useful in Next.js and harmless in a normal React app. For request-specific server data, use the store factory pattern below.
 
 ## Reading state
 

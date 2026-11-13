@@ -3,6 +3,10 @@
 import { increment, useSante } from './store';
 
 export function Counter() {
-  const { count } = useSante('count');
-  return <button onClick={increment}>Count: {count}</button>;
+  const { count, label } = useSante(['count', 'label']);
+  return (
+    <button onClick={increment}>
+      {label}: {count}
+    </button>
+  );
 }
