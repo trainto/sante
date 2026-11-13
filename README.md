@@ -4,7 +4,7 @@ A tiny React state-management library. Create a store, subscribe to top-level ke
 
 Sante(상태) means state in Korean. Supports React 18 and later, TypeScript 5.4 and later, and both ESM and CommonJS packages.
 
-This guide describes the current source API. **`dispatchMany` is not included in the published 0.3.0 package yet.** Check the version available on npm with `npm view @trainto/sante version`, or the version installed in your app with `npm ls @trainto/sante` (`pnpm list @trainto/sante` for pnpm). If you use 0.2.3, read the upgrade guide before updating.
+This guide describes the current source API. **`dispatchMany` and the versioned persistence options are not included in the published 0.3.0 package yet.** Check the version available on npm with `npm view @trainto/sante version`, or the version installed in your app with `npm ls @trainto/sante` (`pnpm list @trainto/sante` for pnpm). If you use 0.2.3, read the upgrade guide before updating.
 
 - Subscribe to the top-level fields each component needs.
 - Update and read state outside React without a provider.
@@ -18,6 +18,7 @@ This guide describes the current source API. **`dispatchMany` is not included in
 - [Typing nullable values and empty arrays](#typing-nullable-values-and-empty-arrays)
 - [Using Immer](#using-immer)
 - [Saving state across reloads](#saving-state-across-reloads)
+- [Versioning and validating saved state](#versioning-and-validating-saved-state)
 - [Next.js and server rendering](#nextjs-and-server-rendering)
 - [Upgrading from 0.2.3](#upgrading-from-023)
 - [API reference](#api-reference)
@@ -253,6 +254,9 @@ export const counterStore = createSante(
 | `key` | An array of top-level keys, or `'ALL'` for all string and numeric keys in the initial state. |
 | `storage` | `'local'` (default) persists across browser sessions; `'session'` lasts for the tab's session. |
 | `onError` | Optional callback for storage, JSON, or serialization failures. |
+| `version` | Optional non-negative safe integer identifying the saved schema. Enables versioned storage. |
+| `migrate` | Optional synchronous transformation from another schema version. Requires `version`. |
+| `validate` | Optional synchronous type guard for the filtered restored partial state. |
 
 The example saves `count` but leaves `draft` in memory. Data is stored at `sante-persistence:counter-store`. Give separate stores different names. Instances with the same name read the same saved entry on creation, but their live state is not synchronized.
 
@@ -260,7 +264,70 @@ Only configured keys are restored and written. Writes happen synchronously durin
 
 If storage is unavailable or the saved JSON is invalid, the store starts with its initial state. Write failures do not prevent live state updates. Synchronous errors thrown by `onError` are also ignored so a reporting failure cannot interrupt initialization or updates.
 
-Restored values are not runtime type-validated. If you change a saved field's schema, validate and migrate the old data yourself or choose a new store name. See the upgrade example below for a validated migration.
+Without `validate`, restored values are not runtime type-validated. Use the options below when saved fields may change schema. The upgrade example later in this guide covers migration from the old shared entry used by 0.2.3.
+
+## Versioning and validating saved state
+
+Set `version` to identify the current schema, `migrate` to convert older data, and `validate` to check restored values. For example, this store accepts a finite numeric `count`; its migration supports schema 0 using either `counter` or `count`:
+
+<!-- example:versioned-persistence.ts -->
+```ts
+import { createSante } from '@trainto/sante';
+
+type CounterState = { count: number; draft: string };
+type PersistedCounter = Pick<CounterState, 'count'>;
+
+export function isPersistedCounter(data: unknown): data is Partial<PersistedCounter> {
+  if (data === null || typeof data !== 'object' || Array.isArray(data)) return false;
+  const saved = data as Record<string, unknown>;
+  return (
+    !Object.prototype.hasOwnProperty.call(saved, 'count') ||
+    (typeof saved.count === 'number' && Number.isFinite(saved.count))
+  );
+}
+
+export function migrateCounter(data: unknown, fromVersion: number): Partial<CounterState> {
+  if (fromVersion !== 0 || data === null || typeof data !== 'object' || Array.isArray(data)) {
+    throw new Error(`Unsupported counter schema: ${fromVersion}`);
+  }
+  const saved = data as Record<string, unknown>;
+  const hasCount = Object.prototype.hasOwnProperty.call(saved, 'count');
+  const hasCounter = Object.prototype.hasOwnProperty.call(saved, 'counter');
+  if (!hasCount && !hasCounter) return {};
+  // Schema 0 may use the old name "counter" or the existing name "count".
+  const count = hasCount ? saved.count : saved.counter;
+  if (typeof count !== 'number' || !Number.isFinite(count)) {
+    throw new Error('Saved count must be a finite number.');
+  }
+  return { count };
+}
+
+const initialState: CounterState = { count: 0, draft: '' };
+export const counterStore = createSante(initialState, {
+  persist: {
+    name: 'counter-store',
+    key: ['count'],
+    version: 1,
+    migrate: migrateCounter,
+    validate: isPersistedCounter,
+    onError: (error) => console.error('Could not restore or save counter state:', error),
+  },
+});
+```
+
+Without `version`, the existing key `sante-persistence:counter-store` and raw JSON format stay unchanged, including when you add only `validate`. With `version`, data is stored at `sante-persistence-v1:counter-store` as `{ version, state }`. The `v1` prefix describes the encoding format; keep the same store name when increasing your schema version so the previous entry can be migrated.
+
+If the versioned entry is absent, Sante reads the named raw entry as schema 0. `version: 0` can adopt it without migration; other versions require `migrate`. Versioned writes never modify or delete that raw entry. A present but invalid versioned entry does not fall back to the raw entry. The shared `sante-persistence` entry from 0.2.3 still needs the separate upgrade migration below.
+
+If you later remove `version`, the store reads the raw entry again, which may contain an older snapshot. Keep versioning enabled after adopting it; changing the schema version and removing versioning are different operations.
+
+Restoration follows this order: read the schema version, migrate if it differs, keep only initialized configured keys, validate that partial state, then combine it with initial values. Migration sees the full old data so it can rename removed keys; validation sees only the fields that will be restored. Missing top-level keys keep their initial values. Nested objects are replaced as whole values rather than deep-merged. Same-version data is validated too. If you roll back to an older app schema, `migrate` must explicitly support the newer saved version or reject it.
+
+Both callbacks must be synchronous and free of external side effects. `migrate` returns a plain partial-state object; `validate` returns a boolean type guard. Promise/thenable results are rejected. Ordinary writes do not run these callbacks, and `validate` is not a general guard for `dispatch` values. Persist JSON-compatible data; JSON's limitations described above still apply.
+
+Successful migration or raw schema-0 adoption writes the current complete persisted snapshot once. If that write fails, the valid restored live state remains available. A retry or another store creation can run the migration again, so do not rely on it executing only once globally. Normal same-version restoration does not write during initialization.
+
+Read, version, migration, or validation failures report `onError` and use initial state without overwriting data during initialization. A later actual change to a persisted key saves current state and may replace the failed versioned entry. Unpersisted changes and unchanged values do not write. Storage failure does not roll back live state updates.
 
 ## Next.js and server rendering
 

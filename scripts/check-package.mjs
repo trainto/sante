@@ -56,6 +56,18 @@ store.dispatch('count', prev => prev + 1);
 store.dispatch('user', { name: 'next' });
 store.dispatchMany({ count: 2, user: { name: 'many' } });
 store.dispatchMany(prev => ({ count: prev.count + 1 }));
+const validated = createSante({ count: 0, name: '' }, {
+  persist: {
+    name: 'package-consumer', key: ['count'], version: 1,
+    migrate: () => ({ count: 1 }),
+    validate: (data: unknown): data is Partial<{ count: number }> => data !== null && typeof data === 'object',
+  },
+});
+validated.dispatch('name', 'field retained');
+// @ts-expect-error Migration requires a schema version in the published types.
+createSante({ count: 0 }, { persist: { name: 'bad', key: 'ALL', migrate: () => ({ count: 1 }) } });
+// @ts-expect-error Migration cannot widen an initialized field's type.
+createSante({ count: 0 }, { persist: { name: 'bad', key: 'ALL', version: 1, migrate: () => ({ count: 'wrong' }) } });
 const count: number = store.useSante('count').count;
 void count;
 // @ts-expect-error The published API must retain key-specific value types.
